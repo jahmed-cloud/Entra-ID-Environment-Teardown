@@ -1,0 +1,129 @@
+name: Entra ID Environment Teardown
+
+on:
+  pull_request:
+    branches: ["main"]
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+    inputs:
+      RUN_MODE:
+        description: "Execution Mode (dry-run or execute)"
+        required: true
+        default: "dry-run"
+      TARGET_DOMAIN:
+        required: true
+      ADMIN_UPNS:
+        required: true
+      BREAKGLASS_UPNS:
+        required: true
+      EXCLUDE_GROUPS:
+        required: false
+      EXCLUDE_APPS:
+        required: false
+      EXCLUDE_CAPS:
+        required: false
+      EXCLUDE_NAMED_LOCATIONS:
+        required: false
+
+env:
+  EXPECTED_DOMAIN: ${{ github.event.inputs.TARGET_DOMAIN || vars.ENTRA_TARGET_DOMAIN }}
+  ADMIN_ACCOUNTS: ${{ github.event.inputs.ADMIN_UPNS || vars.ADMIN_UPNS }}
+  BREAKGLASS_ACCOUNTS: ${{ github.event.inputs.BREAKGLASS_UPNS || vars.BREAKGLASS_UPNS }}
+  EXCLUDE_GROUPS: ${{ github.event.inputs.EXCLUDE_GROUPS || vars.EXCLUDE_GROUPS }}
+  EXCLUDE_APPS: ${{ github.event.inputs.EXCLUDE_APPS || vars.EXCLUDE_APPS }}
+  EXCLUDE_CAPS: ${{ github.event.inputs.EXCLUDE_CAPS || vars.EXCLUDE_CAPS }}
+  EXCLUDE_NAMED_LOCATIONS: ${{ github.event.inputs.EXCLUDE_NAMED_LOCATIONS || vars.EXCLUDE_NAMED_LOCATIONS }}
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      cache-hit: ${{ steps.cache.outputs.cache-hit }}
+
+    steps:
+      - name: Cache PowerShell Modules
+        id: cache
+        uses: actions/cache@v3
+        with:
+          path: ~/.local/share/powershell/Modules
+          key: ${{ runner.os }}-psmodules-v1
+
+      - name: Install Microsoft Graph Modules (if needed)
+        if: steps.cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module Microsoft.Graph.Authentication, Microsoft.Graph.Identity.DirectoryManagement, Microsoft.Graph.Users, Microsoft.Graph.Identity.SignIns, Microsoft.Graph.Identity.Governance, Microsoft.Graph.Groups, Microsoft.Graph.Applications -Scope CurrentUser -Force -AllowClobber
+
+  dry-run:
+    name: Dry Run (WhatIf)
+    runs-on: ubuntu-latest
+    needs: setup
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.event.inputs.RUN_MODE == 'dry-run')
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Execute Teardown Script (Dry Run)
+        shell: pwsh
+        env:
+          TENANT_ID: ${{ secrets.ENTRA_TENANT_ID }}
+          CLIENT_ID: ${{ secrets.ENTRA_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.ENTRA_CLIENT_SECRET }}
+        run: |
+          ./Reset-EntraTenant.ps1 `
+            -TenantId $env:TENANT_ID `
+            -ClientId $env:CLIENT_ID `
+            -ClientSecret $env:CLIENT_SECRET `
+            -ExpectedTenantDomain $env:EXPECTED_DOMAIN `
+            -AdminAccounts ($env:ADMIN_ACCOUNTS -split ',') `
+            -BreakGlassAccounts ($env:BREAKGLASS_ACCOUNTS -split ',') `
+            -ExcludeGroups ($env:EXCLUDE_GROUPS -split ',') `
+            -ExcludeApps ($env:EXCLUDE_APPS -split ',') `
+            -ExcludeCAPs ($env:EXCLUDE_CAPS -split ',') `
+            -ExcludeNamedLocations ($env:EXCLUDE_NAMED_LOCATIONS -split ',') `
+            -WhatIf
+
+      - name: Upload Dry-Run Transcript
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: DryRun-Transcript
+          path: ./*.log
+
+  execute-teardown:
+    name: Execute Teardown (Destructive)
+    runs-on: ubuntu-latest
+    needs: setup
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && github.event.inputs.RUN_MODE == 'execute')
+    environment: production-teardown
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Execute Teardown Script (Live)
+        shell: pwsh
+        env:
+          TENANT_ID: ${{ secrets.ENTRA_TENANT_ID }}
+          CLIENT_ID: ${{ secrets.ENTRA_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.ENTRA_CLIENT_SECRET }}
+        run: |
+          ./Reset-EntraTenant.ps1 `
+            -TenantId $env:TENANT_ID `
+            -ClientId $env:CLIENT_ID `
+            -ClientSecret $env:CLIENT_SECRET `
+            -ExpectedTenantDomain $env:EXPECTED_DOMAIN `
+            -AdminAccounts ($env:ADMIN_ACCOUNTS -split ',') `
+            -BreakGlassAccounts ($env:BREAKGLASS_ACCOUNTS -split ',') `
+            -ExcludeGroups ($env:EXCLUDE_GROUPS -split ',') `
+            -ExcludeApps ($env:EXCLUDE_APPS -split ',') `
+            -ExcludeCAPs ($env:EXCLUDE_CAPS -split ',') `
+            -ExcludeNamedLocations ($env:EXCLUDE_NAMED_LOCATIONS -split ',')
+
+      - name: Upload Execution Transcript
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: Execution-Transcript
+          path: ./*.log
