@@ -1,0 +1,67 @@
+# =========================
+
+# Entra Teardown Project
+
+# =========================
+
+# Logs & transcripts
+
+*.log
+*.txt
+
+# PowerShell artifacts
+
+*.psd1
+*.psm1
+
+# Secrets & configs
+
+.env
+*.env
+secrets.json
+appsettings.json
+
+# Azure / Entra exports
+
+*.csv
+*.json
+
+# Pipeline artifacts
+
+artifacts/
+output/
+
+# OS files
+
+.DS_Store
+Thumbs.db
+
+# IDE / Editor
+
+.vscode/
+.idea/
+
+# Node (if used for UI later)
+
+node_modules/
+
+# Python (if used later)
+
+**pycache**/
+*.pyc
+
+# Temporary files
+
+*.tmp
+*.bak
+
+# Certificates / keys (VERY IMPORTANT)
+
+*.pfx
+*.pem
+*.key
+
+# Terraform (if you extend infra)
+
+.terraform/
+terraform.tfstate*
